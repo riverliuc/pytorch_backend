@@ -87,6 +87,7 @@ TRITONSERVER_Error*
 ModelState::Create(TRITONBACKEND_Model* triton_model, ModelState** state)
 {
   try {
+    /* 新建ModelState对象, 将利用二级指针返回 */
     *state = new ModelState(triton_model);
   }
   catch (const BackendModelException& ex) {
@@ -98,12 +99,15 @@ ModelState::Create(TRITONBACKEND_Model* triton_model, ModelState** state)
 
   // Auto-complete the configuration if requested...
   bool auto_complete_config = false;
+  /* 查看当前的Model是否需需要自动补全config，PyTorch backend不支持自动补全。生命在tritonbackend.h中，定义在triton_model.cc中 */
   RETURN_IF_ERROR(TRITONBACKEND_ModelAutoCompleteConfig(
       triton_model, &auto_complete_config));
+  /* 利用Triton提供的utility函数，自动补全模型config中的部分信息，包括max batch size, group instance等 */
   if (auto_complete_config) {
     RETURN_IF_ERROR((*state)->AutoCompleteConfig());
 
     triton::common::TritonJson::WriteBuffer json_buffer;
+    /* 将补全后的config写成json */
     (*state)->ModelConfig().Write(&json_buffer);
 
     TRITONSERVER_Message* message;
@@ -121,6 +125,7 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
 {
 }
 
+/* 读取PyTorch模型文件 */
 TRITONSERVER_Error*
 ModelState::LoadModel(
     const std::string& artifact_name, const torch::Device device,
@@ -146,13 +151,15 @@ ModelState::LoadModel(
         std::string("unable to find '") + *model_path +
             "' for model instance '" + Name() + "'");
   }
-
+  /* 以上生成PyTorch模型文件路径，并检查模型是否存在 */
+  /* 开始读取模型文件 */
   // Serialize the torch model to string
   std::string model_data_str;
   RETURN_IF_ERROR(ReadTextFile(*model_path, &model_data_str));
 
   try {
     std::istringstream model_stream(model_data_str);
+    /* 从string流读入模型并创建为Torch JIT模型对象, 通过unique指针返回 */
     torch_model->reset(
         new torch::jit::Module(torch::jit::load(model_stream, device)));
   }
@@ -276,9 +283,11 @@ ModelInstanceState::ModelInstanceState(
     device_ = torch::Device(torch::kCUDA, DeviceId());
   }
 
+  /* 根据模型config携带的模型文件名，去读取PyTorch模型 */
   THROW_IF_BACKEND_INSTANCE_ERROR(model_state->LoadModel(
       ArtifactFilename(), device_, &model_path_, &torch_model_));
-
+  
+  /* 从模型config中获取输入的数量 */
   size_t expected_input_cnt = 0;
   {
     triton::common::TritonJson::Value inputs;
@@ -533,6 +542,7 @@ ModelInstanceState::ProcessRequests(
     if (max_batch_size > 0) {
       // Retrieve the batch size from one of the inputs, if the model
       // supports batching, the first dimension size is batch size
+      /* 从每个request的第一个input中获取batch_size, 并计入总的batch_size中 */
       TRITONBACKEND_Input* input;
       TRITONSERVER_Error* err =
           TRITONBACKEND_RequestInputByIndex(requests[i], 0 /* index */, &input);
@@ -584,6 +594,7 @@ ModelInstanceState::ProcessRequests(
   // need the outputs for a request that has an error, we do need to
   // know the size of those outputs associated with the request so we
   // can skip them in the output tensors).
+  /* 维护一个response列表，每个request对应列表中的一个response */
   std::vector<TRITONBACKEND_Response*> responses;
   responses.reserve(request_count);
 
