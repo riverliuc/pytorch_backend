@@ -571,6 +571,7 @@ ModelInstanceState::ProcessRequests(
   // (i.e. max_batch_size == 0). If max_batch_size is exceeded then
   // scheduler has done something badly wrong so fail and release all
   // requests.
+  /* 检查所有request的batch_size之和是否大于max_batch_size */
   if ((total_batch_size != 1) && (total_batch_size > (size_t)max_batch_size)) {
     RequestsRespondWithError(
         requests, request_count,
@@ -600,6 +601,7 @@ ModelInstanceState::ProcessRequests(
 
   for (size_t i = 0; i < request_count; i++) {
     TRITONBACKEND_Response* response;
+    /* 为每个request创建对应的response对象, 包括设置response的id为request的id, 设置response的回调函数等等 */
     auto err = TRITONBACKEND_ResponseNew(&response, requests[i]);
     if (err == nullptr) {
       responses.emplace_back(response);
@@ -614,9 +616,11 @@ ModelInstanceState::ProcessRequests(
   std::vector<torch::jit::IValue> input_tensors;
   std::vector<BackendMemory*> input_memories;
   bool cuda_copy = false;
+  /* 准备输入Tensors的工具类 */
   BackendInputCollector collector(
-      requests, request_count, &responses, model_state_->TritonMemoryManager(),
+      requests, request_count, &responses, model_state_->TritonMemoryManager() /* 定义在ModelState的基类BackendModel中*/,
       model_state_->EnablePinnedInput(), CudaStream());
+  /* 着手准备输入Tensors, 包括为每个input创建buffer(大小为所有request中该input tensor的size之和), 以及把request中的输入数据拷贝到input buffer中 */
   SetInputTensors(
       total_batch_size, requests, request_count, &responses, &collector,
       &input_names, &input_tensors, &input_memories, &cuda_copy);
@@ -630,6 +634,7 @@ ModelInstanceState::ProcessRequests(
     triton::common::TritonJson::Value ios;
     TRITONSERVER_Error* err =
         model_state_->ModelConfig().MemberAsArray("output", &ios);
+    /* 获取每个输出tensor的名称 */
     if (err == nullptr) {
       for (size_t i = 0; i < ios.ArraySize(); i++) {
         triton::common::TritonJson::Value io;
@@ -700,6 +705,7 @@ ModelInstanceState::ProcessRequests(
     }
   }
 
+  /* 将PyTorch模型运行结果输出Tensor导出到responses中 */
   if (!invalid_index) {
     ReadOutputTensors(
         total_batch_size, output_names, output_tensors, requests, request_count,
@@ -790,12 +796,14 @@ ModelInstanceState::SetInputTensors(
   // All requests must have equally-sized input tensors so use any
   // request as the representative for the input tensors.
   uint32_t input_count;
+  /* 首先用任意一个request来获取input tensor的数量 */
   RESPOND_ALL_AND_RETURN_IF_ERROR(
       responses, request_count,
       TRITONBACKEND_RequestInputCount(requests[0], &input_count));
   input_tensors->resize(input_count);
   for (uint32_t input_idx = 0; input_idx < input_count; input_idx++) {
     TRITONBACKEND_Input* input;
+    /* 获取request中每个input */
     RESPOND_ALL_AND_RETURN_IF_ERROR(
         responses, request_count,
         TRITONBACKEND_RequestInputByIndex(requests[0], input_idx, &input));
@@ -804,6 +812,7 @@ ModelInstanceState::SetInputTensors(
     TRITONSERVER_DataType input_datatype;
     const int64_t* input_shape;
     uint32_t input_dims_count;
+    /* 获取input的相关属性，包括shape, 类型等 */
     RESPOND_ALL_AND_RETURN_IF_ERROR(
         responses, request_count,
         TRITONBACKEND_InputProperties(
@@ -815,6 +824,7 @@ ModelInstanceState::SetInputTensors(
     // The shape for the entire input patch, [total_batch_size, ...]
     std::vector<int64_t> batchn_shape(
         input_shape, input_shape + input_dims_count);
+    /* 把batch_size那一维设置成所有request总的batch_size */
     if (max_batch_size != 0) {
       batchn_shape[0] = total_batch_size;
     }
