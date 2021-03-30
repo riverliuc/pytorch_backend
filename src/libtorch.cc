@@ -63,6 +63,9 @@ namespace triton { namespace backend { namespace pytorch {
 // TRITONBACKEND_Model.
 //
 class ModelState : public BackendModel {
+  /* ModelState类继承了BackendModel类，基类中包含了诸多BackendModel的基本信息，包括：*/
+  /* server的指针，mem_manager指针，模型的名称，model_repo的路径，以及model的config信息等等。 */
+  /* 通常我们在ModelState中实现读取这种backend模型的函数。*/
  public:
   static TRITONSERVER_Error* Create(
       TRITONBACKEND_Model* triton_model, ModelState** state);
@@ -194,6 +197,10 @@ ModelState::AutoCompleteConfig()
 // created and associated with each TRITONBACKEND_ModelInstance.
 //
 class ModelInstanceState : public BackendModelInstance {
+  /* ModelInstanceState继承BackendModelInstance类，基类中包含了诸多与某个特定model instance相关的信息，包括：*/
+  /* 指向instance对应BackendModel的指针，instance的类型(GPU/CPU)，运行设备的id，模型文件的路径等 */
+  /* 这个类的对象将依附于TRITONBACKEND_ModelInstance对象，执行实际的输入数据准备、模型前行推理和输出数据收集和发送等步骤， */
+  /* 是Backend在某个设备上的实际executor */
  public:
   static TRITONSERVER_Error* Create(
       ModelState* model_state,
@@ -774,6 +781,7 @@ ModelInstanceState::Execute(
     }
   }
   catch (std::exception& ex) {
+    /* 如果模型前向失败，则对每个response都发送失败response */
     SendErrorForResponses(
         responses, response_count,
         TRITONSERVER_ErrorNew(
@@ -801,9 +809,10 @@ ModelInstanceState::SetInputTensors(
       responses, request_count,
       TRITONBACKEND_RequestInputCount(requests[0], &input_count));
   input_tensors->resize(input_count);
+  /* 对每个input依次进行处理 */
   for (uint32_t input_idx = 0; input_idx < input_count; input_idx++) {
     TRITONBACKEND_Input* input;
-    /* 获取request中每个input */
+    /* 获取request中的目标input对象 */
     RESPOND_ALL_AND_RETURN_IF_ERROR(
         responses, request_count,
         TRITONBACKEND_RequestInputByIndex(requests[0], input_idx, &input));
@@ -840,6 +849,7 @@ ModelInstanceState::SetInputTensors(
                           BackendMemory::AllocationType::GPU};
     }
 
+    /* 为input tensor在特定设备上分配内存。这里相当于把所有request中的目标input都聚合在一起进行内存分配 */
     BackendMemory* input_memory;
     RESPOND_ALL_AND_RETURN_IF_ERROR(
         responses, request_count,
@@ -849,10 +859,12 @@ ModelInstanceState::SetInputTensors(
             &input_memory));
     input_memories->push_back(input_memory);
 
+    /* 创建input buffer */
     TRITONSERVER_MemoryType memory_type = input_memory->MemoryType();
     int64_t memory_type_id = input_memory->MemoryTypeId();
     char* input_buffer = input_memory->MemoryPtr();
 
+    /* 将所有request中的目标input聚合在一起，并将输入数据拷贝到刚才申请的input tensor buffer中 */
     collector->ProcessTensor(
         input_name, input_buffer, batchn_byte_size, memory_type,
         memory_type_id);
@@ -864,6 +876,7 @@ ModelInstanceState::SetInputTensors(
                                ? options.device(torch::kCUDA, device_.index())
                                : options.device(torch::kCPU);
 
+    /* 从input_buffer中的输入数据创建PyTorch的输入tensors */
     torch::Tensor input_tensor =
         torch::from_blob(input_buffer, batchn_shape, updated_options);
     (*input_tensors)[input_index_map_[input_name]] = input_tensor;
@@ -887,11 +900,13 @@ ModelInstanceState::ReadOutputTensors(
 
   bool cuda_copy = false;
   std::vector<std::vector<char>> string_buffers;
+  /* 依次处理每个输出 */
   for (size_t idx = 0; idx < output_names.size(); idx++) {
     std::string name = output_names[idx];
     int op_index = output_index_map_[name];
     torch::Tensor output_flat;
 
+    /* 获取当前目标output tensor，并转换为连续且flattened的内存块 */
     try {
       output_flat = output_tensors[op_index].contiguous().flatten();
     }
@@ -920,6 +935,7 @@ ModelInstanceState::ReadOutputTensors(
                   .c_str()));
     }
 
+    /* 获取output buffer */
     const char* output_buffer =
         static_cast<const char*>(output_flat.data_ptr());
 
@@ -930,6 +946,7 @@ ModelInstanceState::ReadOutputTensors(
       batchn_shape.push_back(*itr);
     }
 
+    /* 对当前的output进行处理，从大output batch中提取相应输出数据生成对应request的response */
     responder.ProcessTensor(
         name, output_dtype, batchn_shape, output_buffer,
         (device_.type() == torch::kCPU) ? TRITONSERVER_MEMORY_CPU
@@ -1015,6 +1032,7 @@ TRITONBACKEND_ModelInitialize(TRITONBACKEND_Model* model)
 
   // Create a ModelState object and associate it with the
   // TRITONBACKEND_Model.
+  /* 创建ModelState并依附于该Model对象，用于维护Model相关的重要信息，以及提供读取这种Backend模型的函数 */
   ModelState* model_state;
   RETURN_IF_ERROR(ModelState::Create(model, &model_state));
   RETURN_IF_ERROR(
@@ -1065,6 +1083,7 @@ TRITONBACKEND_ModelInstanceInitialize(TRITONBACKEND_ModelInstance* instance)
   // Create a ModelInstanceState object and associate it with the
   // TRITONBACKEND_ModelInstance.
   ModelInstanceState* instance_state;
+  /* 创建ModelInstanceState对象，用于真正承担模型推理的工作 */
   RETURN_IF_ERROR(
       ModelInstanceState::Create(model_state, instance, &instance_state));
   RETURN_IF_ERROR(TRITONBACKEND_ModelInstanceSetState(
