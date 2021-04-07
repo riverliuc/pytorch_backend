@@ -579,7 +579,7 @@ ModelInstanceState::ProcessRequests(
   // (i.e. max_batch_size == 0). If max_batch_size is exceeded then
   // scheduler has done something badly wrong so fail and release all
   // requests.
-  /* 检查所有request的batch_size之和是否大于max_batch_size */
+  /* 检查所有request的batch_size之和是否小于max_batch_size 或 等于1 */
   if ((total_batch_size != 1) && (total_batch_size > (size_t)max_batch_size)) {
     RequestsRespondWithError(
         requests, request_count,
