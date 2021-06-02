@@ -532,7 +532,11 @@ ModelInstanceState::ProcessRequests(
   // For each request collect the total batch size for this inference
   // execution. The batch-size, number of inputs, and size of each
   // input has already been checked so don't need to do that here.
+<<<<<<< HEAD
   /* 以下收集送到backend的所有request的batch_size总和, 并检查是否超过max_batch_size */
+=======
+  /* 从每个request的第一个input中获取batch_size, 并计入总的batch_size中 */
+>>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
   size_t total_batch_size = 0;
   for (size_t i = 0; i < request_count; i++) {
     // If we get a nullptr request then something is badly wrong. Fail
@@ -552,7 +556,7 @@ ModelInstanceState::ProcessRequests(
     if (max_batch_size > 0) {
       // Retrieve the batch size from one of the inputs, if the model
       // supports batching, the first dimension size is batch size
-      /* 从每个request的第一个input中获取batch_size, 并计入总的batch_size中 */
+      /* 获取每个request中input的batch_size */
       TRITONBACKEND_Input* input;
       TRITONSERVER_Error* err =
           TRITONBACKEND_RequestInputByIndex(requests[i], 0 /* index */, &input);
@@ -581,7 +585,7 @@ ModelInstanceState::ProcessRequests(
   // (i.e. max_batch_size == 0). If max_batch_size is exceeded then
   // scheduler has done something badly wrong so fail and release all
   // requests.
-  /* 检查所有request的batch_size之和是否大于max_batch_size */
+  /* 检查所有request的batch_size之和是否小于max_batch_size 或 等于1 */
   if ((total_batch_size != 1) && (total_batch_size > (size_t)max_batch_size)) {
     RequestsRespondWithError(
         requests, request_count,
@@ -639,13 +643,14 @@ ModelInstanceState::ProcessRequests(
   // Request to retrieve all model outputs. 'output_names' and
   // 'output_tensors' are parallel vectors and so must be kept in
   // sync.
+  /* 获取每个输出tensor的名称 */
   std::vector<const char*> output_names;
   std::vector<torch::Tensor> output_tensors;
   {
     triton::common::TritonJson::Value ios;
     TRITONSERVER_Error* err =
         model_state_->ModelConfig().MemberAsArray("output", &ios);
-    /* 获取每个输出tensor的名称 */
+
     if (err == nullptr) {
       for (size_t i = 0; i < ios.ArraySize(); i++) {
         triton::common::TritonJson::Value io;
@@ -698,7 +703,11 @@ ModelInstanceState::ProcessRequests(
   input_memories.clear();
 
   // Verify output indices are valid with number of outputs after execution
+<<<<<<< HEAD
   /* 检查模型返回的输出数量是否正常 */
+=======
+  /* 检查config定义的输出tensor的index是否在合理范围内(大于0小于实际输出的tensor数量) */
+>>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
   bool invalid_index = false;
   int max_index = output_tensors.size() - 1;
   for (const auto& name : output_names) {
@@ -734,7 +743,11 @@ ModelInstanceState::ProcessRequests(
   // an earlier error. Note that the responses are not set to nullptr
   // here as we need that indication below to determine if the request
   // we successful or not.
+<<<<<<< HEAD
   /* 把所有response发送出去给Triton */
+=======
+  /* 发送response，把推理结果发送给Triton */
+>>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
   for (auto& response : responses) {
     if (response != nullptr) {
       LOG_IF_ERROR(
@@ -747,6 +760,7 @@ ModelInstanceState::ProcessRequests(
   // Report statistics for each request.
   for (uint32_t r = 0; r < request_count; ++r) {
     auto& request = requests[r];
+    /* 发送每个request的统计数据 */
     LOG_IF_ERROR(
         TRITONBACKEND_ModelInstanceReportStatistics(
             TritonModelInstance(), request,
@@ -754,7 +768,11 @@ ModelInstanceState::ProcessRequests(
             compute_start_ns, compute_end_ns, exec_end_ns),
         "failed reporting request statistics");
 
+<<<<<<< HEAD
     /* 释放掉request对象 */
+=======
+    /* 释放每个request对象 */
+>>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
     LOG_IF_ERROR(
         TRITONBACKEND_RequestRelease(request, TRITONSERVER_REQUEST_RELEASE_ALL),
         "failed releasing request");
