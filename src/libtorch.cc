@@ -138,6 +138,7 @@ ModelState::LoadModel(
   // Find the TorchScript file that describes the model. If the model
   // configuration doesn't have an explicit model file specified then
   // use the default name ("model.pt").
+  /* 生成PyTorch模型文件路径，并检查模型是否存在 */
   std::string cc_model_filename = artifact_name;
   if (cc_model_filename.empty()) {
     cc_model_filename = "model.pt";
@@ -154,7 +155,7 @@ ModelState::LoadModel(
         std::string("unable to find '") + *model_path +
             "' for model instance '" + Name() + "'");
   }
-  /* 以上生成PyTorch模型文件路径，并检查模型是否存在 */
+
   /* 开始读取模型文件 */
   // Serialize the torch model to string
   std::string model_data_str;
@@ -531,10 +532,12 @@ ModelInstanceState::ProcessRequests(
   // For each request collect the total batch size for this inference
   // execution. The batch-size, number of inputs, and size of each
   // input has already been checked so don't need to do that here.
+  /* 以下收集送到backend的所有request的batch_size总和, 并检查是否超过max_batch_size */
   size_t total_batch_size = 0;
   for (size_t i = 0; i < request_count; i++) {
     // If we get a nullptr request then something is badly wrong. Fail
     // and release all requests.
+    /* 检查送来的每个request是否为空，如果是空，则说明遇到严重错误，此时直接中断所有推理 */
     if (requests[i] == nullptr) {
       RequestsRespondWithError(
           requests, request_count,
@@ -623,11 +626,12 @@ ModelInstanceState::ProcessRequests(
   std::vector<torch::jit::IValue> input_tensors;
   std::vector<BackendMemory*> input_memories;
   bool cuda_copy = false;
-  /* 准备输入Tensors的工具类 */
+  /* 创建工具类的对象collector, 用于准备输入Tensors的 */
   BackendInputCollector collector(
       requests, request_count, &responses, model_state_->TritonMemoryManager() /* 定义在ModelState的基类BackendModel中*/,
       model_state_->EnablePinnedInput(), CudaStream());
-  /* 着手准备输入Tensors, 包括为每个input创建buffer(大小为所有request中该input tensor的size之和), 以及把request中的输入数据拷贝到input buffer中 */
+  /* 着手准备输入Tensors, 包括为每个input创建buffer(大小为所有request中该input tensor的size之和), */
+  /* 将送来所有request中的input都聚合为大的batch，以及把request中的输入数据拷贝到input buffer中 */
   SetInputTensors(
       total_batch_size, requests, request_count, &responses, &collector,
       &input_names, &input_tensors, &input_memories, &cuda_copy);
@@ -670,6 +674,7 @@ ModelInstanceState::ProcessRequests(
   }
 
   // Wait for any in-flight input tensor copies to complete.
+  /* 等待所有输入tensor内容的拷贝过程结束 */
 #ifdef TRITON_ENABLE_GPU
   if (cuda_copy) {
     cudaStreamSynchronize(CudaStream());
@@ -680,6 +685,7 @@ ModelInstanceState::ProcessRequests(
   SET_TIMESTAMP(compute_start_ns);
 
   // Run...
+  /* 执行真正的推理 */
   Execute(&responses, request_count, &input_tensors, &output_tensors);
 
   uint64_t compute_end_ns = 0;
@@ -692,6 +698,7 @@ ModelInstanceState::ProcessRequests(
   input_memories.clear();
 
   // Verify output indices are valid with number of outputs after execution
+  /* 检查模型返回的输出数量是否正常 */
   bool invalid_index = false;
   int max_index = output_tensors.size() - 1;
   for (const auto& name : output_names) {
@@ -713,6 +720,7 @@ ModelInstanceState::ProcessRequests(
   }
 
   /* 将PyTorch模型运行结果输出Tensor导出到responses中 */
+  /* 主要将batch的输出tensor中，属于各个request的部分取出来，放到其对应的response中 */
   if (!invalid_index) {
     ReadOutputTensors(
         total_batch_size, output_names, output_tensors, requests, request_count,
@@ -726,6 +734,7 @@ ModelInstanceState::ProcessRequests(
   // an earlier error. Note that the responses are not set to nullptr
   // here as we need that indication below to determine if the request
   // we successful or not.
+  /* 把所有response发送出去给Triton */
   for (auto& response : responses) {
     if (response != nullptr) {
       LOG_IF_ERROR(
@@ -745,6 +754,7 @@ ModelInstanceState::ProcessRequests(
             compute_start_ns, compute_end_ns, exec_end_ns),
         "failed reporting request statistics");
 
+    /* 释放掉request对象 */
     LOG_IF_ERROR(
         TRITONBACKEND_RequestRelease(request, TRITONSERVER_REQUEST_RELEASE_ALL),
         "failed releasing request");
@@ -769,8 +779,10 @@ ModelInstanceState::Execute(
 
   try {
     torch::NoGradGuard no_grad;
+    /* PyTorch执行推理 */
     model_outputs_ = torch_model_->forward(*input_tensors);
     if (model_outputs_.isTuple()) {
+      /* 将模型输出tensor收集起来 */
       auto model_outputs_tuple = model_outputs_.toTuple();
       for (auto& m_op : model_outputs_tuple->elements()) {
         output_tensors->push_back(m_op.toTensor());
@@ -804,7 +816,7 @@ ModelInstanceState::SetInputTensors(
   // All requests must have equally-sized input tensors so use any
   // request as the representative for the input tensors.
   uint32_t input_count;
-  /* 首先用任意一个request来获取input tensor的数量 */
+  /* 首先用任意一个request来获取每个request中input tensor的数量 */
   RESPOND_ALL_AND_RETURN_IF_ERROR(
       responses, request_count,
       TRITONBACKEND_RequestInputCount(requests[0], &input_count));
@@ -906,7 +918,7 @@ ModelInstanceState::ReadOutputTensors(
     int op_index = output_index_map_[name];
     torch::Tensor output_flat;
 
-    /* 获取当前目标output tensor，并转换为连续且flattened的内存块 */
+    /* 获取当前的目标output tensor，并转换为连续且flattened的内存块 */
     try {
       output_flat = output_tensors[op_index].contiguous().flatten();
     }
