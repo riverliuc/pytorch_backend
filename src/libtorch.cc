@@ -532,11 +532,7 @@ ModelInstanceState::ProcessRequests(
   // For each request collect the total batch size for this inference
   // execution. The batch-size, number of inputs, and size of each
   // input has already been checked so don't need to do that here.
-<<<<<<< HEAD
   /* 以下收集送到backend的所有request的batch_size总和, 并检查是否超过max_batch_size */
-=======
-  /* 从每个request的第一个input中获取batch_size, 并计入总的batch_size中 */
->>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
   size_t total_batch_size = 0;
   for (size_t i = 0; i < request_count; i++) {
     // If we get a nullptr request then something is badly wrong. Fail
@@ -703,11 +699,7 @@ ModelInstanceState::ProcessRequests(
   input_memories.clear();
 
   // Verify output indices are valid with number of outputs after execution
-<<<<<<< HEAD
-  /* 检查模型返回的输出数量是否正常 */
-=======
   /* 检查config定义的输出tensor的index是否在合理范围内(大于0小于实际输出的tensor数量) */
->>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
   bool invalid_index = false;
   int max_index = output_tensors.size() - 1;
   for (const auto& name : output_names) {
@@ -743,11 +735,7 @@ ModelInstanceState::ProcessRequests(
   // an earlier error. Note that the responses are not set to nullptr
   // here as we need that indication below to determine if the request
   // we successful or not.
-<<<<<<< HEAD
-  /* 把所有response发送出去给Triton */
-=======
   /* 发送response，把推理结果发送给Triton */
->>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
   for (auto& response : responses) {
     if (response != nullptr) {
       LOG_IF_ERROR(
@@ -768,11 +756,7 @@ ModelInstanceState::ProcessRequests(
             compute_start_ns, compute_end_ns, exec_end_ns),
         "failed reporting request statistics");
 
-<<<<<<< HEAD
-    /* 释放掉request对象 */
-=======
     /* 释放每个request对象 */
->>>>>>> 870a3b29103b97fca83f57d1c72524ee218acdc5
     LOG_IF_ERROR(
         TRITONBACKEND_RequestRelease(request, TRITONSERVER_REQUEST_RELEASE_ALL),
         "failed releasing request");
